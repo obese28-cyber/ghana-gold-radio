@@ -1,0 +1,89 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ggr-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - '3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - uploads-data:/app/public/uploads
+    command: sh -c "npx prisma migrate deploy && npm run db:seed && node server.js"
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/api/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ggr-network
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ggr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ghana_gold_radio}
+      POSTGRES_USER: ${POSTGRES_USER:-ggr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      # Bound to localhost only: lets the Prisma CLI (and local `npm run build`)
+      # reach Postgres from the host without exposing it beyond this machine.
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ggr-network
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ggr-nginx
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/nginx/certs:/etc/nginx/certs:ro
+      - certbot-www:/var/www/certbot
+    networks:
+      - ggr-network
+
+  certbot:
+    image: certbot/certbot
+    container_name: ggr-certbot
+    volumes:
+      - ./docker/nginx/certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done;"
+    networks:
+      - ggr-network
+
+networks:
+  ggr-network:
+    driver: bridge
+
+volumes:
+  certbot-www:
+  postgres-data:
+  uploads-data:

@@ -1,0 +1,32 @@
+# ============================================================
+# Ghana Gold Radio — example crontab (host-level, runs on the Hetzner VPS)
+# Install with: crontab -e   (as the deploy user, or root with care)
+# Adjust paths to match your deployment location.
+# ============================================================
+
+# --- Daily ---
+# 02:00 — Database backup + verification ping
+0 2 * * * /opt/ghana-gold-radio/scripts/backup/backup-db.sh >> /var/log/ggr-backup.log 2>&1
+
+# 03:30 — News draft generation (calls the app's cron API)
+30 3 * * * curl -fsS -X POST https://ghanagoldradio.com/api/cron/daily-news -H "Authorization: Bearer ${CRON_SECRET}" >> /var/log/ggr-cron.log 2>&1
+
+# --- Weekly (Sunday) ---
+# 03:00 — Full weekly backup
+0 3 * * 0 /opt/ghana-gold-radio/scripts/backup/backup-full-weekly.sh >> /var/log/ggr-backup.log 2>&1
+
+# 04:00 — Top 10 draft generation
+0 4 * * 0 curl -fsS -X POST https://ghanagoldradio.com/api/cron/weekly-top10 -H "Authorization: Bearer ${CRON_SECRET}" >> /var/log/ggr-cron.log 2>&1
+
+# 04:15 — Featured artist rotation
+15 4 * * 0 curl -fsS -X POST https://ghanagoldradio.com/api/cron/featured-artist -H "Authorization: Bearer ${CRON_SECRET}" >> /var/log/ggr-cron.log 2>&1
+
+# 04:30 — Newsletter draft prep
+30 4 * * 0 curl -fsS -X POST https://ghanagoldradio.com/api/cron/newsletter-draft -H "Authorization: Bearer ${CRON_SECRET}" >> /var/log/ggr-cron.log 2>&1
+
+# --- Monthly (1st of month) ---
+# 05:00 — Database optimization / log pruning
+0 5 1 * * curl -fsS -X POST https://ghanagoldradio.com/api/cron/monthly-optimize -H "Authorization: Bearer ${CRON_SECRET}" >> /var/log/ggr-cron.log 2>&1
+
+# 05:30 — Analytics report email
+30 5 1 * * curl -fsS -X POST https://ghanagoldradio.com/api/cron/analytics-report -H "Authorization: Bearer ${CRON_SECRET}" >> /var/log/ggr-cron.log 2>&1

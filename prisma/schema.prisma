@@ -1,0 +1,489 @@
+// ============================================================
+// Ghana Gold Radio — Prisma schema
+// PostgreSQL running in Docker on the Hetzner VPS (see docker-compose.yml).
+// Self-hosted PostgreSQL schema with local credentials authentication.
+// a local `passwordHash` column on User for Auth.js credentials login.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------- ENUMS ----------------
+
+enum UserRole {
+  admin
+  editor
+  moderator
+  listener
+}
+
+enum SubmissionStatus {
+  pending
+  in_review
+  approved
+  rejected
+  published
+  withdrawn
+}
+
+enum PermissionStatus {
+  unknown
+  requested
+  granted
+  denied
+  expired
+}
+
+enum PostStatus {
+  draft
+  pending_review
+  published
+  archived
+}
+
+enum PostCategoryType {
+  news
+  diaspora_update
+  event
+  highlife
+  gospel
+  afrobeats_hiplife
+  general
+}
+
+enum AiContentType {
+  artist_bio
+  artist_spotlight
+  news_summary
+  top10_commentary
+  social_caption
+  newsletter
+  event_summary
+}
+
+enum AiReviewStatus {
+  draft
+  flagged
+  approved
+  rejected
+  published
+}
+
+enum SponsorInquiryStatus {
+  new
+  contacted
+  negotiating
+  closed_won
+  closed_lost
+}
+
+enum NotificationType {
+  submission_received
+  submission_status_change
+  sponsor_inquiry
+  contact_message
+  newsletter_signup
+  system
+  ai_content_ready
+}
+
+// ---------------- USERS ----------------
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  fullName     String?   @map("full_name")
+  avatarUrl    String?   @map("avatar_url")
+  role         UserRole  @default(listener)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  createdArtists      Artist[]            @relation("ArtistCreatedBy")
+  createdSongs        Song[]              @relation("SongCreatedBy")
+  createdCharts       Top10Chart[]        @relation("ChartCreatedBy")
+  authoredPosts        Post[]              @relation("PostAuthor")
+  reviewedPosts        Post[]              @relation("PostReviewer")
+  reviewedSubmissions  ArtistSubmission[]  @relation("SubmissionReviewer")
+  createdPermissions   Permission[]        @relation("PermissionCreatedBy")
+  assignedInquiries    SponsorInquiry[]    @relation("InquiryAssignee")
+  handledContacts      ContactMessage[]    @relation("ContactHandler")
+  updatedSettings      SiteSetting[]       @relation("SettingUpdatedBy")
+  activityLogs         ActivityLog[]
+  notifications        Notification[]
+
+  @@map("users")
+}
+
+// ---------------- CATEGORIES ----------------
+
+model Category {
+  id          String           @id @default(uuid())
+  name        String
+  slug        String           @unique
+  type        PostCategoryType @default(general)
+  description String?
+  parentId    String?          @map("parent_id")
+  parent      Category?        @relation("CategoryParent", fields: [parentId], references: [id])
+  children    Category[]       @relation("CategoryParent")
+  sortOrder   Int              @default(0) @map("sort_order")
+  isActive    Boolean          @default(true) @map("is_active")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  deletedAt   DateTime?        @map("deleted_at")
+
+  songs Song[]
+  posts Post[]
+
+  @@map("categories")
+}
+
+// ---------------- PERMISSIONS (rights tracking) ----------------
+
+model Permission {
+  id                String           @id @default(uuid())
+  entityType        String           @map("entity_type")
+  entityId          String           @map("entity_id")
+  status            PermissionStatus @default(unknown)
+  rightsOwnerName   String?          @map("rights_owner_name")
+  rightsOwnerContact String?         @map("rights_owner_contact")
+  permissionScope   String?          @map("permission_scope")
+  grantedAt         DateTime?        @map("granted_at")
+  expiresAt         DateTime?        @map("expires_at")
+  documentUrl       String?          @map("document_url")
+  notes             String?
+  createdById       String?          @map("created_by")
+  createdBy         User?            @relation("PermissionCreatedBy", fields: [createdById], references: [id])
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  deletedAt         DateTime?        @map("deleted_at")
+
+  artists Artist[]
+  songs   Song[]
+
+  @@index([entityType, entityId])
+  @@map("permissions")
+}
+
+// ---------------- ARTISTS ----------------
+
+model Artist {
+  id               String           @id @default(uuid())
+  stageName        String           @map("stage_name")
+  legalName        String?          @map("legal_name")
+  slug             String           @unique
+  bio              String?
+  bioAiGenerated   Boolean          @default(false) @map("bio_ai_generated")
+  genres           String[]         @default([])
+  country          String?          @default("Ghana")
+  city             String?
+  pressPhotoUrl    String?          @map("press_photo_url")
+  socialLinks      Json             @default("{}") @map("social_links")
+  isFeatured       Boolean          @default(false) @map("is_featured")
+  permissionStatus PermissionStatus @default(unknown) @map("permission_status")
+  permissionId     String?          @map("permission_id")
+  permission       Permission?      @relation(fields: [permissionId], references: [id])
+  verified         Boolean          @default(false)
+  createdById      String?          @map("created_by")
+  createdBy        User?            @relation("ArtistCreatedBy", fields: [createdById], references: [id])
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  deletedAt        DateTime?        @map("deleted_at")
+
+  songs Song[]
+
+  @@index([isFeatured])
+  @@map("artists")
+}
+
+// ---------------- SONGS ----------------
+
+model Song {
+  id                  String           @id @default(uuid())
+  title               String
+  slug                String           @unique
+  artistId            String           @map("artist_id")
+  artist              Artist           @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  genre               String?
+  categoryId          String?          @map("category_id")
+  category            Category?        @relation(fields: [categoryId], references: [id])
+  releaseDate         DateTime?        @map("release_date")
+  officialYoutubeUrl  String?          @map("official_youtube_url")
+  streamingLinks      Json             @default("{}") @map("streaming_links")
+  coverArtUrl         String?          @map("cover_art_url")
+  aiSummary           String?          @map("ai_summary")
+  permissionStatus    PermissionStatus @default(unknown) @map("permission_status")
+  permissionId        String?          @map("permission_id")
+  permission          Permission?      @relation(fields: [permissionId], references: [id])
+  isActive            Boolean          @default(true) @map("is_active")
+  playCount           BigInt           @default(0) @map("play_count")
+  createdById         String?          @map("created_by")
+  createdBy           User?            @relation("SongCreatedBy", fields: [createdById], references: [id])
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  deletedAt           DateTime?        @map("deleted_at")
+
+  chartItems Top10ChartItem[]
+
+  @@index([artistId])
+  @@index([categoryId])
+  @@map("songs")
+}
+
+// ---------------- TOP10 CHARTS ----------------
+
+model Top10Chart {
+  id             String         @id @default(uuid())
+  weekStartDate  DateTime       @unique @map("week_start_date") @db.Date
+  weekEndDate    DateTime       @map("week_end_date") @db.Date
+  title          String         @default("Top 10 Ghana Songs")
+  aiCommentary   String?        @map("ai_commentary")
+  aiReviewStatus AiReviewStatus @default(draft) @map("ai_review_status")
+  isPublished    Boolean        @default(false) @map("is_published")
+  publishedAt    DateTime?      @map("published_at")
+  createdById    String?        @map("created_by")
+  createdBy      User?          @relation("ChartCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  deletedAt      DateTime?      @map("deleted_at")
+
+  items Top10ChartItem[]
+
+  @@index([weekStartDate])
+  @@map("top10_charts")
+}
+
+model Top10ChartItem {
+  id             String     @id @default(uuid())
+  chartId        String     @map("chart_id")
+  chart          Top10Chart @relation(fields: [chartId], references: [id], onDelete: Cascade)
+  songId         String     @map("song_id")
+  song           Song       @relation(fields: [songId], references: [id], onDelete: Cascade)
+  rank           Int
+  previousRank   Int?       @map("previous_rank")
+  weeksOnChart   Int        @default(1) @map("weeks_on_chart")
+  note           String?
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  @@unique([chartId, rank])
+  @@unique([chartId, songId])
+  @@index([chartId])
+  @@map("top10_chart_items")
+}
+
+// ---------------- POSTS ----------------
+
+model Post {
+  id                  String           @id @default(uuid())
+  title               String
+  slug                String           @unique
+  excerpt             String?
+  body                String           @default("")
+  categoryId          String?          @map("category_id")
+  category            Category?        @relation(fields: [categoryId], references: [id])
+  postType            PostCategoryType @default(news) @map("post_type")
+  featuredImageUrl    String?          @map("featured_image_url")
+  sourceName          String?          @map("source_name")
+  sourceUrl           String?          @map("source_url")
+  isAiGenerated       Boolean          @default(false) @map("is_ai_generated")
+  aiContentType       AiContentType?   @map("ai_content_type")
+  aiUncertaintyFlags  String[]         @default([]) @map("ai_uncertainty_flags")
+  aiReviewStatus      AiReviewStatus   @default(draft) @map("ai_review_status")
+  status              PostStatus       @default(draft)
+  publishedAt         DateTime?        @map("published_at")
+  reviewedById        String?          @map("reviewed_by")
+  reviewedBy          User?            @relation("PostReviewer", fields: [reviewedById], references: [id])
+  reviewedAt          DateTime?        @map("reviewed_at")
+  authorId            String?          @map("author_id")
+  author              User?            @relation("PostAuthor", fields: [authorId], references: [id])
+  viewCount           BigInt           @default(0) @map("view_count")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  deletedAt           DateTime?        @map("deleted_at")
+
+  @@index([postType, status])
+  @@index([publishedAt])
+  @@map("posts")
+}
+
+// ---------------- ARTIST SUBMISSIONS ----------------
+
+model ArtistSubmission {
+  id                              String           @id @default(uuid())
+  stageName                       String           @map("stage_name")
+  legalName                       String           @map("legal_name")
+  email                           String
+  phone                           String?
+  whatsapp                        String?
+  country                         String
+  city                            String?
+  genre                           String
+  songTitle                       String           @map("song_title")
+  officialYoutubeUrl              String?          @map("official_youtube_url")
+  streamingLinks                  Json             @default("{}") @map("streaming_links")
+  artistBio                       String?          @map("artist_bio")
+  socialLinks                     Json             @default("{}") @map("social_links")
+  pressPhotoUrl                   String?          @map("press_photo_url")
+  demoUploadUrl                   String?          @map("demo_upload_url")
+  rightsOwnershipDeclared         Boolean          @default(false) @map("rights_ownership_declared")
+  promotionalPermissionDeclared   Boolean          @default(false) @map("promotional_permission_declared")
+  consentRecordedAt               DateTime?        @map("consent_recorded_at")
+  consentIp                       String?          @map("consent_ip")
+  status                          SubmissionStatus @default(pending)
+  adminNotes                      String?          @map("admin_notes")
+  reviewedById                    String?          @map("reviewed_by")
+  reviewedBy                      User?            @relation("SubmissionReviewer", fields: [reviewedById], references: [id])
+  reviewedAt                      DateTime?        @map("reviewed_at")
+  linkedArtistId                  String?          @map("linked_artist_id")
+  linkedSongId                    String?          @map("linked_song_id")
+  spamScore                       Decimal?         @default(0) @map("spam_score") @db.Decimal(4, 2)
+  createdAt                       DateTime         @default(now()) @map("created_at")
+  updatedAt                       DateTime         @updatedAt @map("updated_at")
+  deletedAt                       DateTime?        @map("deleted_at")
+
+  @@index([status])
+  @@index([email])
+  @@map("artist_submissions")
+}
+
+// ---------------- NEWSLETTER ----------------
+
+model NewsletterSubscriber {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  fullName         String?   @map("full_name")
+  country          String?
+  preferences      Json      @default("{\"news\": true, \"top10\": true, \"diaspora\": true, \"events\": true}")
+  isConfirmed      Boolean   @default(false) @map("is_confirmed")
+  confirmToken     String?   @map("confirm_token")
+  unsubscribeToken String    @default(uuid()) @map("unsubscribe_token")
+  confirmedAt      DateTime? @map("confirmed_at")
+  unsubscribedAt   DateTime? @map("unsubscribed_at")
+  source           String?   @default("website")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([isConfirmed])
+  @@map("newsletter_subscribers")
+}
+
+// ---------------- SPONSORS ----------------
+
+model Sponsor {
+  id          String    @id @default(uuid())
+  companyName String    @map("company_name")
+  contactName String?   @map("contact_name")
+  logoUrl     String?   @map("logo_url")
+  website     String?
+  packageTier String?   @map("package_tier")
+  isActive    Boolean   @default(true) @map("is_active")
+  startsAt    DateTime? @map("starts_at") @db.Date
+  endsAt      DateTime? @map("ends_at") @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@map("sponsors")
+}
+
+model SponsorInquiry {
+  id              String                @id @default(uuid())
+  companyName     String                @map("company_name")
+  contactName     String                @map("contact_name")
+  email           String
+  phone           String?
+  packageInterest String?               @map("package_interest")
+  budgetRange     String?               @map("budget_range")
+  message         String?
+  status          SponsorInquiryStatus  @default(new)
+  assignedToId    String?               @map("assigned_to")
+  assignedTo      User?                 @relation("InquiryAssignee", fields: [assignedToId], references: [id])
+  adminNotes      String?               @map("admin_notes")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  deletedAt       DateTime?             @map("deleted_at")
+
+  @@index([status])
+  @@map("sponsor_inquiries")
+}
+
+// ---------------- CONTACT MESSAGES ----------------
+
+model ContactMessage {
+  id          String   @id @default(uuid())
+  name        String
+  email       String
+  category    String   @default("general")
+  subject     String?
+  message     String
+  isSpam      Boolean  @default(false) @map("is_spam")
+  isResolved  Boolean  @default(false) @map("is_resolved")
+  handledById String?  @map("handled_by")
+  handledBy   User?    @relation("ContactHandler", fields: [handledById], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("contact_messages")
+}
+
+// ---------------- SITE SETTINGS ----------------
+
+model SiteSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json     @default("{}")
+  description String?
+  updatedById String?  @map("updated_by")
+  updatedBy   User?    @relation("SettingUpdatedBy", fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("site_settings")
+}
+
+// ---------------- ACTIVITY LOGS (audit trail) ----------------
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  actorId    String?  @map("actor_id")
+  actor      User?    @relation(fields: [actorId], references: [id])
+  actorEmail String?  @map("actor_email")
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json     @default("{}")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+// ---------------- NOTIFICATIONS ----------------
+
+model Notification {
+  id          String           @id @default(uuid())
+  recipientId String?          @map("recipient_id")
+  recipient   User?            @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  type        NotificationType
+  title       String
+  body        String?
+  link        String?
+  isRead      Boolean          @default(false) @map("is_read")
+  readAt      DateTime?        @map("read_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@index([recipientId, isRead])
+  @@map("notifications")
+}
