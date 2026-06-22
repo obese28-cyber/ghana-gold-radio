@@ -12,3 +12,13 @@ export function createSong(data: Prisma.SongCreateInput) {
 export function updateSong(id: string, data: Prisma.SongUpdateInput) {
   return prisma.song.update({ where: { id }, data, select: { id: true } });
 }
+
+/** Used by the admin Songs list and the Top 10 chart editor's song picker. */
+export function listSongsForAdmin() {
+  return prisma.song.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    include: { artist: { select: { stageName: true } } },
+  });
+}

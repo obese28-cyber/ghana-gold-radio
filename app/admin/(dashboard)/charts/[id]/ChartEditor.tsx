@@ -1,11 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-export default function ChartEditor({ chart }: { chart: any }) {
+export interface ChartEditorSong {
+  id: string;
+  title: string;
+  artistStageName: string;
+}
+
+export default function ChartEditor({ chart, songs }: { chart: any; songs: ChartEditorSong[] }) {
   const router = useRouter();
-  const [songId, setSongId] = useState('');
+  const [songId, setSongId] = useState(songs[0]?.id ?? '');
   const [rank, setRank] = useState(1);
   const [commentary, setCommentary] = useState(chart.aiCommentary ?? '');
   const [isPublished, setIsPublished] = useState(chart.isPublished);
@@ -26,7 +33,7 @@ export default function ChartEditor({ chart }: { chart: any }) {
       setError(json.error || 'Failed to add item.');
       return;
     }
-    setSongId('');
+    setRank((r) => Math.min(10, r + 1));
     router.refresh();
   }
 
@@ -61,25 +68,40 @@ export default function ChartEditor({ chart }: { chart: any }) {
             </li>
           ))}
         </ul>
-        <div className="flex gap-2">
-          <input
-            value={songId}
-            onChange={(e) => setSongId(e.target.value)}
-            placeholder="Song UUID"
-            className="flex-1 rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm text-white"
-          />
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={rank}
-            onChange={(e) => setRank(Number(e.target.value))}
-            className="w-20 rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm text-white"
-          />
-          <button onClick={addItem} disabled={busy} className="btn-outline text-sm">
-            Add
-          </button>
-        </div>
+        {songs.length === 0 ? (
+          <p className="text-sm text-white/50">
+            No songs yet.{' '}
+            <Link href="/admin/songs/new" className="text-gold underline">
+              Add a song
+            </Link>{' '}
+            before building this chart.
+          </p>
+        ) : (
+          <div className="flex gap-2">
+            <select
+              value={songId}
+              onChange={(e) => setSongId(e.target.value)}
+              className="flex-1 rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm text-white"
+            >
+              {songs.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title} — {s.artistStageName}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={rank}
+              onChange={(e) => setRank(Number(e.target.value))}
+              className="w-20 rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm text-white"
+            />
+            <button onClick={addItem} disabled={busy} className="btn-outline text-sm">
+              Add
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="card-ggr">

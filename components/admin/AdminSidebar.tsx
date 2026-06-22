@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Users, Music2, ListMusic, Newspaper, Mail, UserCog,
+  LayoutDashboard, Users, Music2, Music, ListMusic, Newspaper, Mail, UserCog,
   BarChart3, Sparkles, FolderTree, HandCoins, ClipboardList,
 } from 'lucide-react';
 
@@ -11,6 +11,7 @@ const NAV = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/submissions', label: 'Submissions', icon: ClipboardList },
   { href: '/admin/artists', label: 'Artists', icon: Users },
+  { href: '/admin/songs', label: 'Songs', icon: Music },
   { href: '/admin/charts', label: 'Top 10 Charts', icon: ListMusic },
   { href: '/admin/news', label: 'News & Posts', icon: Newspaper },
   { href: '/admin/categories', label: 'Categories', icon: FolderTree },
